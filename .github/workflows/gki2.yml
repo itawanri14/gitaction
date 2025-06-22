@@ -42,27 +42,31 @@ jobs:
           cp -r $susfs/50_add_susfs_in_gki-android12-5.10.patch .
           patch -p1 < 50_add_susfs_in_gki-android12-5.10.patch
 
-      - name: Commit KernelSU
-        run: |
-          cd gki/common/KernelSU
-          git add .
-          git commit -m "addksu" || true
-
-      - name: Commit KSU Submodule
+      - name: Clone and Apply KernelSU
         run: |
           cd gki/common
+          git clone https://github.com/tiann/KernelSU
+          rm -rf KernelSU/.git
           git add KernelSU
-          git commit -m "add ksu sub" || true
+          git commit -m "Add KernelSU as flat directory" || true
 
-      - name: Set Kernel LOCALVERSION
+      - name: Set Kernel EXTRAVERSION and Disable Localversion Script
         run: |
-          echo 'export LOCALVERSION="-Aetherium2.1"' >> gki/common/build.config.gki.aarch64
+          cd gki/common
+          echo "" > scripts/setlocalversion
+          chmod +x scripts/setlocalversion
+          sed -i '4d' Makefile
+          echo 'EXTRAVERSION = -Aetherium2.1-Genesis-SukiSUxSUFS' >> Makefile
+
+      - name: Append CONFIG_HZ_300 and CONFIG_HZ=300 to defconfig
+        run: |
+          echo -e '\nCONFIG_HZ_300=y\nCONFIG_HZ=300' >> gki/common/arch/arm64/configs/gki_defconfig
 
       - name: Final Clean Tree Commit (last action before build)
         run: |
           cd gki/common
           git add .
-          git commit -m "clean tree" || true
+          git commit -m "clean tree before build" || true
 
       - name: Build Kernel
         run: |
