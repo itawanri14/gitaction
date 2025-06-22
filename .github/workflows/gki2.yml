@@ -1,70 +1,71 @@
-name: Build GKI Aetherium 2.1
+name: Build GKI Aetherium2.3
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
+    name: Build Kernel
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Set up dependencies
-        run: |
-          sudo apt update && sudo apt upgrade -y
-          sudo apt install -y git curl repo build-essential bc bison flex libssl-dev \
-            libelf-dev python3 python3-pip unzip zip rsync libncurses-dev lld
+    - name: Install Dependencies
+      run: |
+        sudo apt update && sudo apt upgrade -y
+        sudo apt install -y git curl repo build-essential bc bison flex libssl-dev \
+          libelf-dev python3 python3-pip unzip zip rsync libncurses-dev lld
 
-      - name: Set up repo
-        run: |
-          mkdir -p gki && cd gki
-          repo init -u https://android.googlesource.com/kernel/manifest -b common-android12-5.10
-          repo sync -c --no-tags --no-clone-bundle --optimized-fetch
+    - name: Create and Init GKI Source
+      run: |
+        mkdir gki && cd gki
+        repo init -u https://android.googlesource.com/kernel/manifest -b common-android12-5.10
+        repo sync -c --no-tags --no-clone-bundle --optimized-fetch
 
-      - name: Delete line 2 from build.config.gki
-        run: |
-          cd gki/common
-          sed -i '2d' build.config.gki
+    - name: Delete Line 2 in build.config.gki
+      run: |
+        sed -i '2d' gki/common/build.config.gki
 
-      - name: Run SukiSU setup
-        run: |
-          cd gki/common
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
+    - name: Apply SukiSU Patch
+      run: |
+        cd gki/common
+        curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+        curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
+        git clone https://gitlab.com/simonpunk/susfs4ksu/ -b gki-android12-5.10 sus
+        susfs=sus/kernel_patches
+        cp -r $susfs/fs .
+        cp -r $susfs/include .
+        cp -r $susfs/50_add_susfs_in_gki-android12-5.10.patch .
+        patch -p1 < 50_add_susfs_in_gki-android12-5.10.patch
 
-      - name: Apply susfs4ksu patch
-        run: |
-          cd gki/common
-          git clone https://gitlab.com/simonpunk/susfs4ksu/ -b gki-android12-5.10 sus
-          cp -r sus/kernel_patches/fs .
-          cp -r sus/kernel_patches/include .
-          cp sus/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch .
-          patch -p1 < 50_add_susfs_in_gki-android12-5.10.patch
+    - name: Commit KernelSU
+      run: |
+        cd gki/common/KernelSU
+        git add .
+        git commit -m "addksu" || true
 
-      - name: Set LOCALVERSION
-        run: echo "LOCALVERSION=-Aetherium2.1" >> $GITHUB_ENV
+    - name: Commit KSU Submodule
+      run: |
+        cd gki/common
+        git add KernelSU
+        git commit -m "add ksu sub" || true
 
-      - name: Build Kernel
-        run: |
-          cd gki
-          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
+    - name: Set Kernel LOCALVERSION
+      run: |
+        echo 'export LOCALVERSION="-Aetherium2.3"' >> gki/common/build.config.gki.aarch64
 
-      - name: Upload Image.gz
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Image.gz
-          path: gki/out/android12-5.10/dist/Image.gz
+    - name: Final Clean Tree Commit (last action before build)
+      run: |
+        cd gki/common
+        git add .
+        git commit -m "clean tree" || true
 
-      - name: Upload vmlinux
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vmlinux
-          path: gki/out/android12-5.10/dist/vmlinux
+    - name: Build Kernel
+      run: |
+        cd gki
+        LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
 
-      - name: Upload full output folder
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: full-out
-          path: gki/out
+    - name: Upload Image to PixelDrain
+      run: |
+        curl -u :23c84c82-ce06-4e35-bc1f-69eaa13b9958 \
+          -F file=@gki/out/android12-5.10/common/arch/arm64/boot/Image \
+          https://pixeldrain.com/api/file
